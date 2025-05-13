@@ -23,6 +23,17 @@ UFO_COLOR = (100, 255, 100)
 # Sterne generieren
 stars = [[random.randint(0, WIDTH), random.randint(0, HEIGHT)] for _ in range(100)]
 
+# Deine Datenbank-Zugangsdaten
+MYSQL_USER = 'pakirathan.ranujan'
+MYSQL_PASSWORD = '47118330'
+MYSQL_DB = "pakirathan_ranujan"
+
+# SSH-Verbindungsdetails
+SSH_HOST = 'ofi.tech-lab.ch'
+SSH_PORT = 23  # SSH Standardport
+SSH_USER = 'sieber_db'
+SSH_PW = 'hanshabersack'  # Dein SSH Passwort (falls benötigt)
+
 # Funktionen
 def draw_text(text, size, color, x, y, center=True):
     font = pygame.font.SysFont(None, size)
@@ -156,53 +167,50 @@ def play_game():
     return times
 
 def connect_to_db():
-    print("[connect_to_db] Starte SSH Tunnel...")
-    SSH_HOST = 'ofi.tech-lab.ch'
-    SSH_PORT = 22  
-    SSH_USER = 'sieber_db'
-    SSH_PW = "hanshabersack"
-
-    MYSQL_HOST = '127.0.0.1'
-    MYSQL_PORT = 3306
-    MYSQL_USER = 'pakirathan.ranujan'
-    MYSQL_PASSWORD = '47118330'
-    MYSQL_DB = "pakirathan_ranujan"
+    tunnel = None
+    conn = None
+    cursor = None
 
     try:
         tunnel = SSHTunnelForwarder(
             (SSH_HOST, SSH_PORT),
             ssh_username=SSH_USER,
             ssh_password=SSH_PW,
-            remote_bind_address=(MYSQL_HOST, MYSQL_PORT),
+            remote_bind_address=('127.0.0.1', 3306),
             local_bind_address=('127.0.0.1', 3307)
         )
-
         tunnel.start()
-        print("[connect_to_db] SSH Tunnel aktiv.")
 
         conn = mysql.connector.connect(
             host='127.0.0.1',
-            port=3307,
+            port=3306,
             user=MYSQL_USER,
             password=MYSQL_PASSWORD,
             database=MYSQL_DB
         )
+        cursor = conn.cursor()
 
-        print("[connect_to_db] MySQL-Verbindung hergestellt.")
-        return tunnel, conn
-
+        print(f"Verbindung zu {SSH_HOST} Datenbank erfolgreich")
+    
     except Exception as e:
-        print(f"[connect_to_db] Fehler: {e}")
-        raise  # Wirf den Fehler weiter, um sicherzustellen, dass der Fehler in der Hauptlogik erkannt wird
+        print(f"[connect_to_db] Fehler beim Verbindungsaufbau: {e}")
+        return None, None, None
+    
+    return tunnel, conn, cursor
 
 def save_game_result(username, avg_time, clicks):
     if not username or avg_time <= 0 or clicks <= 0:
         print("[save_game_result] Ungültige Daten, Speicherung übersprungen.")
         return
 
+    tunnel, conn, cursor = None, None, None
+
     try:
-        tunnel, conn = connect_to_db()
-        cursor = conn.cursor()
+        tunnel, conn, cursor = connect_to_db()
+
+        if conn is None or cursor is None:
+            print("[save_game_result] Fehler bei der Verbindung zur DB.")
+            return
 
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         sql = """
@@ -219,16 +227,23 @@ def save_game_result(username, avg_time, clicks):
         print(f"[save_game_result] Fehler: {e}")
 
     finally:
-        # Stelle sicher, dass der Cursor und die Verbindung nur geschlossen werden, wenn sie erfolgreich initialisiert wurden
-        try:
-            if 'cursor' in locals():  # Überprüft, ob der cursor existiert
+        if cursor:
+            try:
                 cursor.close()
-            if 'conn' in locals():  # Überprüft, ob die Verbindung existiert
+            except Exception as e:
+                print(f"[save_game_result] Fehler beim Schließen des Cursors: {e}")
+
+        if conn:
+            try:
                 conn.close()
-            if 'tunnel' in locals():  # Überprüft, ob der Tunnel existiert
+            except Exception as e:
+                print(f"[save_game_result] Fehler beim Schließen der Verbindung: {e}")
+
+        if tunnel:
+            try:
                 tunnel.close()
-        except Exception as e:
-            print(f"[save_game_result] Fehler beim Schließen: {e}")
+            except Exception as e:
+                print(f"[save_game_result] Fehler beim Schließen des Tunnels: {e}")
 
 def save_game_result_async(username, avg_time, clicks):
     def task():
