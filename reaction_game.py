@@ -1,95 +1,60 @@
 import pygame
+import sys
 import random
 import time
-import sys
+import threading
 from datetime import datetime
-import mysql.connector
 from sshtunnel import SSHTunnelForwarder
+import mysql.connector
 
-# ---------- DB KONFIGURATION (aus aktuellem Code übernommen) ----------
-def connect_to_db():
-    SSH_HOST = 'ofi.tech-lab.ch'
-    SSH_PORT = 23
-    SSH_USER = 'sieber_db'
-    SSH_PW = "hanshabersack"
-
-    MYSQL_HOST = '127.0.0.1'
-    MYSQL_PORT = 3306
-    MYSQL_USER = 'pakirathan.ranujan'
-    MYSQL_PASSWORD = '47118330'
-    MYSQL_DB = "pakirathan_ranujan"
-
-    tunnel = SSHTunnelForwarder(
-        (SSH_HOST, SSH_PORT),
-        ssh_username=SSH_USER,
-        ssh_password=SSH_PW,
-        remote_bind_address=(MYSQL_HOST, MYSQL_PORT),
-        local_bind_address=('127.0.0.1', 3307)
-    )
-    tunnel.start()
-
-    conn = mysql.connector.connect(
-        host='127.0.0.1',
-        port=3307,
-        user=MYSQL_USER,
-        password=MYSQL_PASSWORD,
-        database=MYSQL_DB
-    )
-    return tunnel, conn
-
-def save_game_result(username, avg_time, clicks):
-    tunnel, conn = connect_to_db()
-    cursor = conn.cursor()
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-    sql = """
-        INSERT INTO Player (name, timestamp, avg_time, clicks)
-        VALUES (%s, %s, %s, %s)
-    """
-    values = (username, timestamp, avg_time, clicks)
-    cursor.execute(sql, values)
-    conn.commit()
-    cursor.close()
-    conn.close()
-    tunnel.close()
-
-# ---------- SPIEL SETUP ----------
+# Initialisierung
 pygame.init()
 WIDTH, HEIGHT = 800, 600
-WHITE, BLACK, RED = (255,255,255), (0,0,0), (255,0,0)
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Reaction Space")
-font = pygame.font.SysFont(None, 40)
+pygame.display.set_caption("Reaction UFO Game")
+font = pygame.font.SysFont(None, 48)
 clock = pygame.time.Clock()
-username = None
 
+# Farben
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+UFO_COLOR = (100, 255, 100)
+
+# Sterne generieren
+stars = [[random.randint(0, WIDTH), random.randint(0, HEIGHT)] for _ in range(100)]
+
+# Funktionen
 def draw_text(text, size, color, x, y, center=True):
-    font_obj = pygame.font.SysFont(None, size)
-    text_surf = font_obj.render(text, True, color)
-    text_rect = text_surf.get_rect()
+    font = pygame.font.SysFont(None, size)
+    surface = font.render(text, True, color)
+    rect = surface.get_rect()
     if center:
-        text_rect.center = (x, y)
+        rect.center = (x, y)
     else:
-        text_rect.topleft = (x, y)
-    screen.blit(text_surf, text_rect)
+        rect.topleft = (x, y)
+    screen.blit(surface, rect)
 
 def draw_space_background():
-    screen.fill((0, 0, 20))
-    for _ in range(100):
-        pygame.draw.circle(screen, WHITE, (random.randint(0, WIDTH), random.randint(0, HEIGHT)), 1)
+    screen.fill(BLACK)
+    for star in stars:
+        pygame.draw.circle(screen, WHITE, star, 2)
+        star[1] += 1
+        if star[1] > HEIGHT:
+            star[0] = random.randint(0, WIDTH)
+            star[1] = 0
 
-# ---------- Username-Eingabe (aus aktuellem Code übernommen) ----------
-def input_name():
-    input_box = pygame.Rect(WIDTH//2 - 140, HEIGHT//2, 280, 50)
-    color = pygame.Color('lightskyblue3')
-    text = ''
-    active = True
-    while active:
+def draw_ufo(x, y):
+    pygame.draw.ellipse(screen, UFO_COLOR, (x, y, 80, 40))
+    pygame.draw.ellipse(screen, (0, 255, 255), (x + 20, y - 10, 40, 20))
+
+def ask_username():
+    username = ""
+    input_active = True
+
+    while input_active:
         draw_space_background()
-        draw_text("Bitte gib deinen Namen ein:", 40, WHITE, WIDTH//2, HEIGHT//2 - 60)
-        pygame.draw.rect(screen, color, input_box, 2)
-        txt_surface = font.render(text, True, color)
-        screen.blit(txt_surface, (input_box.x+5, input_box.y+10))
+        draw_text("Gib deinen Namen ein:", 40, WHITE, WIDTH // 2, HEIGHT // 3)
+        draw_text(username, 48, WHITE, WIDTH // 2, HEIGHT // 2)
         pygame.display.flip()
 
         for event in pygame.event.get():
@@ -97,24 +62,42 @@ def input_name():
                 pygame.quit()
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN and len(text) > 0:
-                    return text
+                if event.key == pygame.K_RETURN and username.strip():
+                    input_active = False
                 elif event.key == pygame.K_BACKSPACE:
-                    text = text[:-1]
+                    username = username[:-1]
                 else:
-                    if len(text) < 20:
-                        text += event.unicode
+                    if len(username) < 20:
+                        username += event.unicode
+
+    return username.strip()
+
+def show_menu():
+    while True:
+        draw_space_background()
+        draw_text("Reaction UFO Game", 60, WHITE, WIDTH//2, HEIGHT//4)
+        draw_text("1 - Start Game", 40, WHITE, WIDTH//2, HEIGHT//2)
+        draw_text("2 - Quit", 40, WHITE, WIDTH//2, HEIGHT//2 + 60)
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_1:
+                    return
+                elif event.key == pygame.K_2:
+                    pygame.quit()
+                    sys.exit()
 
 def show_results(times):
     screen.fill(BLACK)
     draw_text("Fertig!", 60, WHITE, WIDTH//2, HEIGHT//4)
     avg_time = sum(times) / len(times)
     for i, t in enumerate(times):
-        draw_text(f"UFO {i+1}: {t:.3f} Sekunden", 36, WHITE, WIDTH//2, HEIGHT//2 + i * 30)
+        draw_text(f"UFO {i+1}: {t:.3f} Sekunden", 36, WHITE, WIDTH//2, HEIGHT//2 + i * 30, center=True)
     draw_text(f"⏱ Durchschnitt: {avg_time:.3f} s", 40, WHITE, WIDTH//2, HEIGHT - 100)
-
-    save_game_result(username, avg_time, len(times))
-
     draw_text("Drücke [R] für Replay oder [Q] zum Beenden", 32, WHITE, WIDTH//2, HEIGHT - 50)
     pygame.display.flip()
 
@@ -129,206 +112,147 @@ def show_results(times):
                 elif event.key == pygame.K_q:
                     return False
 
-def main():
-    global username
-    username = input_name()
+def play_game():
+    times = []
+    for i in range(5):
+        delay = random.uniform(1.5, 3.5)
+        clicked = False
+        ufo_x = random.randint(50, WIDTH - 130)
+        ufo_y = random.randint(50, HEIGHT - 130)
 
-    while True:
-        times = []
-        for _ in range(5):
-            screen.fill(BLACK)
-            draw_text("Bereit?", 50, WHITE, WIDTH//2, HEIGHT//2)
-            pygame.display.flip()
-            pygame.time.delay(random.randint(1000, 3000))
-
+        wait_start = time.time()
+        while time.time() - wait_start < delay:
             draw_space_background()
-            ufo = pygame.Rect(random.randint(50, WIDTH-100), random.randint(50, HEIGHT-100), 60, 60)
-            pygame.draw.ellipse(screen, RED, ufo)
+            draw_text("Bereit für das nächste UFO...", 36, WHITE, WIDTH//2, HEIGHT//2)
             pygame.display.flip()
-            start_time = time.time()
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
 
-            clicked = False
-            while not clicked:
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        pygame.quit()
-                        sys.exit()
-                    elif event.type == pygame.MOUSEBUTTONDOWN:
-                        if ufo.collidepoint(event.pos):
-                            reaction_time = time.time() - start_time
-                            times.append(reaction_time)
-                            clicked = True
+        ufo_start = time.time()
+        while not clicked:
+            draw_space_background()
+            draw_ufo(ufo_x, ufo_y)
+            pygame.display.flip()
 
-        if not show_results(times):
-            break
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    mx, my = pygame.mouse.get_pos()
+                    if ufo_x <= mx <= ufo_x + 80 and ufo_y <= my <= ufo_y + 40:
+                        clicked = True
+                        reaction_time = time.time() - ufo_start
+                        times.append(reaction_time)
 
-main()
+                        draw_space_background()
+                        draw_ufo(ufo_x, ufo_y)
+                        draw_text("Getroffen!", 40, WHITE, WIDTH//2, HEIGHT//2)
+                        pygame.display.flip()
+                        pygame.time.delay(500)
+            clock.tick(60)
+    return times
+
+def connect_to_db():
+    print("[connect_to_db] Starte SSH Tunnel...")
+    SSH_HOST = 'ofi.tech-lab.ch'
+    SSH_PORT = 22  
+    SSH_USER = 'sieber_db'
+    SSH_PW = "hanshabersack"
+
+    MYSQL_HOST = '127.0.0.1'
+    MYSQL_PORT = 3306
+    MYSQL_USER = 'pakirathan.ranujan'
+    MYSQL_PASSWORD = '47118330'
+    MYSQL_DB = "pakirathan_ranujan"
+
+    try:
+        tunnel = SSHTunnelForwarder(
+            (SSH_HOST, SSH_PORT),
+            ssh_username=SSH_USER,
+            ssh_password=SSH_PW,
+            remote_bind_address=(MYSQL_HOST, MYSQL_PORT),
+            local_bind_address=('127.0.0.1', 3307)
+        )
+
+        tunnel.start()
+        print("[connect_to_db] SSH Tunnel aktiv.")
+
+        conn = mysql.connector.connect(
+            host='127.0.0.1',
+            port=3307,
+            user=MYSQL_USER,
+            password=MYSQL_PASSWORD,
+            database=MYSQL_DB
+        )
+
+        print("[connect_to_db] MySQL-Verbindung hergestellt.")
+        return tunnel, conn
+
+    except Exception as e:
+        print(f"[connect_to_db] Fehler: {e}")
+        raise  # Wirf den Fehler weiter, um sicherzustellen, dass der Fehler in der Hauptlogik erkannt wird
+
+def save_game_result(username, avg_time, clicks):
+    if not username or avg_time <= 0 or clicks <= 0:
+        print("[save_game_result] Ungültige Daten, Speicherung übersprungen.")
+        return
+
+    try:
+        tunnel, conn = connect_to_db()
+        cursor = conn.cursor()
+
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        sql = """
+            INSERT INTO Player (name, timestamp, avg_time, clicks)
+            VALUES (%s, %s, %s, %s)
+        """
+        values = (username, timestamp, round(avg_time, 3), clicks)
+        cursor.execute(sql, values)
+        conn.commit()
+
+        print("[save_game_result] Spiel erfolgreich gespeichert.")
+
+    except Exception as e:
+        print(f"[save_game_result] Fehler: {e}")
+
+    finally:
+        # Stelle sicher, dass der Cursor und die Verbindung nur geschlossen werden, wenn sie erfolgreich initialisiert wurden
+        try:
+            if 'cursor' in locals():  # Überprüft, ob der cursor existiert
+                cursor.close()
+            if 'conn' in locals():  # Überprüft, ob die Verbindung existiert
+                conn.close()
+            if 'tunnel' in locals():  # Überprüft, ob der Tunnel existiert
+                tunnel.close()
+        except Exception as e:
+            print(f"[save_game_result] Fehler beim Schließen: {e}")
+
+def save_game_result_async(username, avg_time, clicks):
+    def task():
+        try:
+            save_game_result(username, avg_time, clicks)
+        except Exception as e:
+            print(f"[Thread] Fehler im Thread: {e}")
+
+    threading.Thread(target=task, daemon=True).start()
+
+# Hauptprogramm
+username = ask_username()
+
+while True:
+    show_menu()
+    results = play_game()
+
+    if results:
+        avg = sum(results) / len(results)
+        save_game_result_async(username, avg, len(results))
+    else:
+        print("[Spiel] Keine Ergebnisse – kein DB-Eintrag.")
+
+    if not show_results(results):
+        break
+
 pygame.quit()
-
-# Old Code
-#import pygame
-#import random
-#import time
-#import sys
-#from datetime import datetime
-#import mysql.connector
-#from sshtunnel import SSHTunnelForwarder
-#
-## ---------- DB KONFIGURATION ----------
-#def connect_to_db():
-#    SSH_HOST = 'ofi.tech-lab.ch'
-#    SSH_PORT = 23
-#    SSH_USER = 'sieber_db'
-#    SSH_PW = "hanshabersack"
-#
-#    MYSQL_HOST = '127.0.0.1'
-#    MYSQL_PORT = 3306
-#    MYSQL_USER = 'pakirathan.ranujan'
-#    MYSQL_PASSWORD = '47118330'
-#    MYSQL_DB = "pakirathan_ranujan"
-#
-#    tunnel = SSHTunnelForwarder(
-#        (SSH_HOST, SSH_PORT),
-#        ssh_username=SSH_USER,
-#        ssh_password=SSH_PW,
-#        remote_bind_address=(MYSQL_HOST, MYSQL_PORT),
-#        local_bind_address=('127.0.0.1', 3307)
-#    )
-#    tunnel.start()
-#
-#    conn = mysql.connector.connect(
-#        host='127.0.0.1',
-#        port=3307,
-#        user=MYSQL_USER,
-#        password=MYSQL_PASSWORD,
-#        database=MYSQL_DB
-#    )
-#    return tunnel, conn
-#
-#def save_game_result(username, avg_time, clicks):
-#    tunnel, conn = connect_to_db()
-#    cursor = conn.cursor()
-#    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-#
-#    sql = """
-#        INSERT INTO Player (name, timestamp, avg_time, clicks)
-#        VALUES (%s, %s, %s, %s)
-#    """
-#
-#    values = (username, timestamp, avg_time, clicks)
-#    cursor.execute("SELECT * FROM Player LIMIT 5;")
-#    conn.commit()
-#    cursor.close()
-#    conn.close()
-#    tunnel.close()
-#
-## ---------- SPIEL SETUP ----------
-#pygame.init()
-#WIDTH, HEIGHT = 800, 600
-#WHITE, BLACK, RED = (255,255,255), (0,0,0), (255,0,0)
-#screen = pygame.display.set_mode((WIDTH, HEIGHT))
-#pygame.display.set_caption("Reaction Space")
-#font = pygame.font.SysFont(None, 40)
-#clock = pygame.time.Clock()
-#username = None
-#
-#def draw_text(text, size, color, x, y, center=True):
-#    font_obj = pygame.font.SysFont(None, size)
-#    text_surf = font_obj.render(text, True, color)
-#    text_rect = text_surf.get_rect()
-#    if center:
-#        text_rect.center = (x, y)
-#    else:
-#        text_rect.topleft = (x, y)
-#    screen.blit(text_surf, text_rect)
-#
-#def draw_space_background():
-#    screen.fill((0, 0, 20))
-#    for _ in range(100):
-#        pygame.draw.circle(screen, WHITE, (random.randint(0, WIDTH), random.randint(0, HEIGHT)), 1)
-#
-#def input_name():
-#    input_box = pygame.Rect(WIDTH//2 - 140, HEIGHT//2, 280, 50)
-#    color = pygame.Color('lightskyblue3')
-#    text = ''
-#    active = True
-#    while active:
-#        draw_space_background()
-#        draw_text("Bitte gib deinen Namen ein:", 40, WHITE, WIDTH//2, HEIGHT//2 - 60)
-#        pygame.draw.rect(screen, color, input_box, 2)
-#        txt_surface = font.render(text, True, color)
-#        screen.blit(txt_surface, (input_box.x+5, input_box.y+10))
-#        pygame.display.flip()
-#
-#        for event in pygame.event.get():
-#            if event.type == pygame.QUIT:
-#                pygame.quit()
-#                sys.exit()
-#            elif event.type == pygame.KEYDOWN:
-#                if event.key == pygame.K_RETURN and len(text) > 0:
-#                    return text
-#                elif event.key == pygame.K_BACKSPACE:
-#                    text = text[:-1]
-#                else:
-#                    if len(text) < 20:
-#                        text += event.unicode
-#
-#def show_results(times):
-#    screen.fill(BLACK)
-#    draw_text("Fertig!", 60, WHITE, WIDTH//2, HEIGHT//4)
-#    avg_time = sum(times) / len(times)
-#    for i, t in enumerate(times):
-#        draw_text(f"UFO {i+1}: {t:.3f} Sekunden", 36, WHITE, WIDTH//2, HEIGHT//2 + i * 30)
-#    draw_text(f"⏱ Durchschnitt: {avg_time:.3f} s", 40, WHITE, WIDTH//2, HEIGHT - 100)
-#
-#    save_game_result(username, avg_time, len(times))
-#
-#    draw_text("Drücke [R] für Replay oder [Q] zum Beenden", 32, WHITE, WIDTH//2, HEIGHT - 50)
-#    pygame.display.flip()
-#
-#    while True:
-#        for event in pygame.event.get():
-#            if event.type == pygame.QUIT:
-#                pygame.quit()
-#                sys.exit()
-#            elif event.type == pygame.KEYDOWN:
-#                if event.key == pygame.K_r:
-#                    return True
-#                elif event.key == pygame.K_q:
-#                    return False
-#
-#def main():
-#    global username
-#    username = input_name()
-#
-#    while True:
-#        times = []
-#        for _ in range(5):
-#            screen.fill(BLACK)
-#            draw_text("Bereit?", 50, WHITE, WIDTH//2, HEIGHT//2)
-#            pygame.display.flip()
-#            pygame.time.delay(random.randint(1000, 3000))
-#
-#            draw_space_background()
-#            ufo = pygame.Rect(random.randint(50, WIDTH-100), random.randint(50, HEIGHT-100), 60, 60)
-#            pygame.draw.ellipse(screen, RED, ufo)
-#            pygame.display.flip()
-#            start_time = time.time()
-#
-#            clicked = False
-#            while not clicked:
-#                for event in pygame.event.get():
-#                    if event.type == pygame.QUIT:
-#                        pygame.quit()
-#                        sys.exit()
-#                    elif event.type == pygame.MOUSEBUTTONDOWN:
-#                        if ufo.collidepoint(event.pos):
-#                            reaction_time = time.time() - start_time
-#                            times.append(reaction_time)
-#                            clicked = True
-#
-#        if not show_results(times):
-#            break
-#
-#main()
-#pygame.quit()
